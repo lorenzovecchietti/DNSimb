@@ -1,0 +1,50 @@
+DO
+  IF wimb(ix,iy)#NULL AND wimb(ix,iy,LO).zind=zBC THEN var(ix,iy,wimb(ix,iy,LO).zind).p=pBC; pcond(ix,iy,wimb(ix,iy,LO).zind)=YES;
+FOR ALL ix AND iy=0 TO ny DIV 5
+
+REAL vMag2
+SUBROUTINE lowerInletImposition
+  DO
+    IF wimb(ix,iy)#NULL AND wimb(ix,iy,LO).zind=zBC THEN
+      WITH var(ix+*,iy+*,wimb(ix,iy,LO).zind+*)
+        w(0,0,-1)=w(0,0,0);
+        IF w(0,0,0)<=0 THEN vMag2=0 ELSE vMag2=0.25*((u(-1,0,0)+u(0,0,0))^2+(v(0,-1,0)+v(0,0,0))^2+(w(0,0,0)*2)^2); w(0,0,-1)=0
+        p(0,0,0)=pBC-0.5*vMag2
+    END IF
+   IF vimb(ix,iy)#NULL AND vimb(ix,iy,LO).zind=zBC+1 THEN var(ix,iy,vimb(ix,iy,LO).zind-1).v=var(ix,iy,vimb(ix,iy,LO).zind).v
+   IF uimb(ix,iy)#NULL AND uimb(ix,iy,LO).zind=zBC+1 THEN var(ix,iy,uimb(ix,iy,LO).zind-1).u=var(ix,iy,uimb(ix,iy,LO).zind).u
+ FOR ALL ix AND iy=0 TO ny DIV 5
+END lowerInletImposition
+
+SUBROUTINE ballBCImposition
+  LOOP FOR i=0 TO nBallBCxm-1
+    var(xBallm1(i).xx,xBallm1(i).yy,xBallm1(i).zz).u=var(xBallm1(i).xx+1,xBallm1(i).yy,xBallm1(i).zz).u*xBallm1(i).bx
+    var(xBallm1(i).xx,xBallm1(i).yy,xBallm1(i).zz).v=var(xBallm1(i).xx+1,xBallm1(i).yy,xBallm1(i).zz).v*xBallm1(i).by
+    var(xBallm1(i).xx,xBallm1(i).yy,xBallm1(i).zz).w=var(xBallm1(i).xx+1,xBallm1(i).yy,xBallm1(i).zz).w*xBallm1(i).bz
+  REPEAT
+  LOOP FOR i=0 TO nBallBCxp-1
+    var(xBallp1(i).xx,xBallp1(i).yy,xBallp1(i).zz).u=var(xBallp1(i).xx-1,xBallp1(i).yy,xBallp1(i).zz).u*xBallp1(i).bx
+    var(xBallp1(i).xx,xBallp1(i).yy,xBallp1(i).zz).v=var(xBallp1(i).xx-1,xBallp1(i).yy,xBallp1(i).zz).v*xBallp1(i).by
+    var(xBallp1(i).xx,xBallp1(i).yy,xBallp1(i).zz).w=var(xBallp1(i).xx-1,xBallp1(i).yy,xBallp1(i).zz).w*xBallp1(i).bz
+  REPEAT
+  LOOP FOR i=0 TO nBallBCyp-1
+    var(yBallp1(i).xx,yBallp1(i).yy,yBallp1(i).zz).u=var(yBallp1(i).xx,yBallp1(i).yy-1,yBallp1(i).zz).u*yBallp1(i).bx
+    var(yBallp1(i).xx,yBallp1(i).yy,yBallp1(i).zz).v=var(yBallp1(i).xx,yBallp1(i).yy-1,yBallp1(i).zz).v*yBallp1(i).by
+    var(yBallp1(i).xx,yBallp1(i).yy,yBallp1(i).zz).w=var(yBallp1(i).xx,yBallp1(i).yy-1,yBallp1(i).zz).w*yBallp1(i).bz
+  REPEAT
+  LOOP FOR i=0 TO nBallBCym-1
+    var(yBallm1(i).xx,yBallm1(i).yy,yBallm1(i).zz).u=var(yBallm1(i).xx,yBallm1(i).yy+1,yBallm1(i).zz).u*yBallm1(i).bx
+    var(yBallm1(i).xx,yBallm1(i).yy,yBallm1(i).zz).v=var(yBallm1(i).xx,yBallm1(i).yy+1,yBallm1(i).zz).v*yBallm1(i).by
+    var(yBallm1(i).xx,yBallm1(i).yy,yBallm1(i).zz).w=var(yBallm1(i).xx,yBallm1(i).yy+1,yBallm1(i).zz).w*yBallm1(i).bz
+  REPEAT
+  LOOP FOR i=0 TO nBallBCzp-1
+    var(zBallp1(i).xx,zBallp1(i).yy,zBallp1(i).zz).u=var(zBallp1(i).xx,zBallp1(i).yy,zBallp1(i).zz-1).u*zBallp1(i).bx
+    var(zBallp1(i).xx,zBallp1(i).yy,zBallp1(i).zz).v=var(zBallp1(i).xx,zBallp1(i).yy,zBallp1(i).zz-1).v*zBallp1(i).by
+    var(zBallp1(i).xx,zBallp1(i).yy,zBallp1(i).zz).w=var(zBallp1(i).xx,zBallp1(i).yy,zBallp1(i).zz-1).w*zBallp1(i).bz
+  REPEAT
+  LOOP FOR i=0 TO nBallBCzm-1
+    var(zBallm1(i).xx,zBallm1(i).yy,zBallm1(i).zz).u=var(zBallm1(i).xx,zBallm1(i).yy,zBallm1(i).zz+1).u*zBallm1(i).bx
+    var(zBallm1(i).xx,zBallm1(i).yy,zBallm1(i).zz).v=var(zBallm1(i).xx,zBallm1(i).yy,zBallm1(i).zz+1).v*zBallm1(i).by
+    var(zBallm1(i).xx,zBallm1(i).yy,zBallm1(i).zz).w=var(zBallm1(i).xx,zBallm1(i).yy,zBallm1(i).zz+1).w*zBallm1(i).bz
+  REPEAT
+END ballBCImposition

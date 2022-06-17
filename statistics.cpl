@@ -1,0 +1,183 @@
+REAL uInt, vInt, wInt
+REAL timeOld
+timeOld=time
+
+REAL beta
+STRUCTURED ARRAY[um,vm,wm,pm,u2,v2,w2,uv,uw,vw,p2] OF REAL stats(0..nx,0..ny,0..nz)=0
+SUBROUTINE calcStats
+  DO
+    WITH var
+      uInt=(u(ix,iy,iz)+u(ix-1,iy,iz))*0.5
+      vInt=(v(ix,iy,iz)+v(ix,iy-1,iz))*0.5
+      wInt=(w(ix,iy,iz)+w(ix,iy,iz-1))*0.5
+    END WITH
+    WITH stats
+      um(ix,iy,iz)=~+uInt*deltat
+      vm(ix,iy,iz)=~+vInt*deltat
+      wm(ix,iy,iz)=~+wInt*deltat
+      pm(ix,iy,iz)=~+var(ix,iy,iz).p*deltat
+
+      u2(ix,iy,iz)=~+uInt^2*deltat
+      v2(ix,iy,iz)=~+vInt^2*deltat
+      w2(ix,iy,iz)=~+wInt^2*deltat
+      p2(ix,iy,iz)=~+var(ix,iy,iz).p^2*deltat
+
+      uv(ix,iy,iz)=~+(uInt*vInt)*deltat
+      uw(ix,iy,iz)=~+(uInt*wInt)*deltat
+      vw(ix,iy,iz)=~+(vInt*wInt)*deltat
+    END WITH
+  FOR ix=1 TO nx AND iy=1 TO ny AND iz=1 TO nz
+END calcStats
+
+
+SUBROUTINE ByteSwap(POINTER TO REAL xxx)
+C SECTION
+   register char a;
+   register char * b = (char *) xxx_;
+   register int  i = 0;
+   register int  j = sizeof(*xxx_)-1;
+   while (i<j)
+     {
+      a = b[i];
+      b[i] = b[j];
+      b[j] = a;
+      i++, j--;
+      }
+END C SECTION
+END ByteSwap
+INTEGER npointsVTK
+npointsVTK=(ny+1)*(nx+1)*(nz+1)
+
+REAL uu,vv,ww,pp
+
+SUBROUTINE writeVTKStats(POINTER TO CSTRING name)
+
+    out=CREATE(name)
+
+        WRITE TO out "# vtk DataFile Version 2.0"
+        WRITE TO out "DNS vector field"
+        WRITE TO out "BINARY"
+        WRITE TO out "DATASET RECTILINEAR_GRID"
+        WRITE TO out "DIMENSIONS "nx+1" "ny+1" "nz+1
+
+        WRITE TO out "X_COORDINATES "nx+1" double"
+        LOOP FOR ix=0 TO nx
+        x=xxmin+ix*deltax; ByteSwap(^x)
+        WRITE BINARY TO out x
+        REPEAT
+
+        WRITE TO out "Y_COORDINATES "ny+1" double"
+        LOOP FOR iy=0 TO ny
+        y=yymin+iy*deltay; ByteSwap(^y)
+        WRITE BINARY TO out y
+        REPEAT
+
+        WRITE TO out "Z_COORDINATES "nz+1" double"
+        LOOP FOR iz=0 TO nz
+        z=zzmin+iz*deltaz; ByteSwap(^z)
+        WRITE BINARY TO out z
+        REPEAT
+
+        WRITE TO out "POINT_DATA "npointsVTK
+ 
+       WRITE TO out "VECTORS UMean double"
+        LOOP FOR iz=0 TO nz
+        LOOP FOR iy=0 TO ny
+            LOOP FOR ix=0 TO nx
+            uu=stats.um(ix, iy, iz)/(time-timeOld); ByteSwap(^uu)
+            vv=stats.vm(ix, iy, iz)/(time-timeOld); ByteSwap(^vv)
+            ww=stats.wm(ix, iy, iz)/(time-timeOld); ByteSwap(^ww)
+            WRITE BINARY TO out uu, vv, ww
+            REPEAT
+        REPEAT
+    REPEAT
+
+    WRITE TO out "SCALARS pMean double"
+    WRITE TO out "LOOKUP_TABLE default"
+    LOOP FOR iz=0 TO nz
+        LOOP FOR iy=0 TO ny
+            LOOP FOR ix=0 TO nx
+                pp=stats.pm(ix,iy,iz)/(time-timeOld); ByteSwap(^pp)
+                WRITE BINARY TO out pp
+            REPEAT
+        REPEAT
+    REPEAT
+
+    WRITE TO out "SCALARS uu double"
+    WRITE TO out "LOOKUP_TABLE default"
+    LOOP FOR iz=0 TO nz
+        LOOP FOR iy=0 TO ny
+            LOOP FOR ix=0 TO nx
+                pp=stats.u2(ix,iy,iz)/(time-timeOld)-(stats.um(ix, iy, iz)/(time-timeOld))^2; ByteSwap(^pp)
+                WRITE BINARY TO out pp
+            REPEAT
+        REPEAT
+    REPEAT
+
+    WRITE TO out "SCALARS vv double"
+    WRITE TO out "LOOKUP_TABLE default"
+    LOOP FOR iz=0 TO nz
+        LOOP FOR iy=0 TO ny
+            LOOP FOR ix=0 TO nx
+                pp=stats.v2(ix,iy,iz)/(time-timeOld)-(stats.vm(ix, iy, iz)/(time-timeOld))^2; ByteSwap(^pp)
+                WRITE BINARY TO out pp
+            REPEAT
+        REPEAT
+    REPEAT
+
+    WRITE TO out "SCALARS ww double"
+    WRITE TO out "LOOKUP_TABLE default"
+    LOOP FOR iz=0 TO nz
+        LOOP FOR iy=0 TO ny
+            LOOP FOR ix=0 TO nx
+                pp=stats.w2(ix,iy,iz)/(time-timeOld)-(stats.wm(ix, iy, iz)/(time-timeOld))^2; ByteSwap(^pp)
+                WRITE BINARY TO out pp
+            REPEAT
+        REPEAT
+    REPEAT
+
+    WRITE TO out "SCALARS uv double"
+    WRITE TO out "LOOKUP_TABLE default"
+    LOOP FOR iz=0 TO nz
+        LOOP FOR iy=0 TO ny
+            LOOP FOR ix=0 TO nx
+                pp=stats.uv(ix,iy,iz)/(time-timeOld)-stats.um(ix,iy,iz)*stats.vm(ix,iy,iz)/(time-timeOld)^2; ByteSwap(^pp)
+                WRITE BINARY TO out pp
+            REPEAT
+        REPEAT
+    REPEAT
+
+    WRITE TO out "SCALARS uw double"
+    WRITE TO out "LOOKUP_TABLE default"
+    LOOP FOR iz=0 TO nz
+        LOOP FOR iy=0 TO ny
+            LOOP FOR ix=0 TO nx
+               pp=stats.uw(ix,iy,iz)/(time-timeOld)-stats.um(ix,iy,iz)*stats.wm(ix,iy,iz)/(time-timeOld)^2; ByteSwap(^pp)
+                WRITE BINARY TO out pp
+            REPEAT
+        REPEAT
+    REPEAT
+
+    WRITE TO out "SCALARS vw double"
+    WRITE TO out "LOOKUP_TABLE default"
+    LOOP FOR iz=0 TO nz
+        LOOP FOR iy=0 TO ny
+            LOOP FOR ix=0 TO nx
+                pp=stats.vw(ix,iy,iz)/(time-timeOld)-stats.vm(ix,iy,iz)*stats.wm(ix,iy,iz)/(time-timeOld)^2; ByteSwap(^pp)
+                WRITE BINARY TO out pp
+            REPEAT
+        REPEAT
+    REPEAT
+
+    WRITE TO out "SCALARS pp double"
+    WRITE TO out "LOOKUP_TABLE default"
+    LOOP FOR iz=0 TO nz
+        LOOP FOR iy=0 TO ny
+            LOOP FOR ix=0 TO nx
+                pp=stats.p2(ix,iy,iz)/(time-timeOld)-(stats.pm(ix,iy,iz)/(time-timeOld))^2; ByteSwap(^pp)
+                WRITE BINARY TO out pp
+            REPEAT
+        REPEAT
+    REPEAT
+    CLOSE(out)
+END writeVTKStats

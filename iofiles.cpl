@@ -1,0 +1,24 @@
+SUBROUTINE import
+  READ BY NAME FROM savedfield nx,ny,nz,ballx,bally,ballz,radius,nu,time,it,nAddedPoints, deltax, deltay, deltaz, xxmin, yymin, zzmin, deltat
+
+  READ FROM savedfield
+  POINTER TO STORED STRUCTURE[CHAR header(0..POSITION(savedfield));
+      ARRAY(0..nx,0..ny,0..nz) OF VARS v] stored=savedfield
+  var(LO..HI,LO..HI)=stored.v(var.LO1..var.HI1,var.LO2..var.HI2)
+  CLOSE savedfield
+END import
+
+SUBROUTINE savefield(POINTER TO CSTRING name)
+  ARRAY(0..ny,0..nz) OF VARS buf
+  savedfield=OPEN(""name".partial")
+  WRITE TO savedfield "! ""nose"
+  xxmin=xmin(0); yymin=xmin(1); zzmin=xmin(2)
+  WRITE BY NAME TO savedfield nx,ny,nz,ballx:1.15,bally:1.15,ballz:1.15,radius:1.15,nu:1.15,time:1.15,it,nAddedPoints,deltax:1.15,deltay:1.15,deltaz:1.15,xxmin:1.15,yymin:1.15,zzmin:1.15,deltat
+
+  WRITE BY NAME TO savedfield
+  LOOP FOR ix=0 TO nx
+    WRITE BINARY TO savedfield var(ix,0..ny)
+  REPEAT
+  CLOSE savedfield
+  rename(""name".partial", name)
+END savefield

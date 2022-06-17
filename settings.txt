@@ -1,0 +1,17 @@
+! Settings stlimb
+nx=446  ny=624  nz=714
+ballx=0.0030  bally=0.105  ballz=-0.0078  radius=0.035
+nAddedPoints=2
+
+deltat=0.00005
+deltatMax=0.01
+CFL=1.5
+itSave=1000
+tMax=0.25
+
+pBC=-8
+zPlane=-0.02
+nu=1E-5
+
+nCorrLoopsIt=3
+nCorrLoopsIt1=3

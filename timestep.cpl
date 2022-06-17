@@ -1,0 +1,233 @@
+USE rbmat
+#define lapl(f) [v10(0).f+vm10(0).f]*d2x+[v01(0).f+v0m1(0).f]*d2y+[v00(1).f+v00(-1).f]*d2z-v00(0).f*d20
+
+REAL d1x=1/deltax,d1y=1/deltay,d2x=1/deltax/deltax,d2y=1/deltay/deltay,d1z=1/deltaz,d2z=1/deltaz/deltaz,d20=2*d2x+2*d2y+2*d2z, n20=-1/d20
+
+SUBROUTINE AdamsB(REAL val^,oldrsd^,rsd)
+  val=val+deltat*[1.5*rsd-0.5*oldrsd]
+  oldrsd=rsd
+END AdamsB
+
+SUBROUTINE rai1(REAL val^,oldrsd^,rsd)
+  val=val+deltat*64/120*rsd
+  oldrsd=rsd
+END rai1
+
+SUBROUTINE rai2(REAL val^,oldrsd^,rsd)
+  val=val+deltat*(50/120*rsd-34/120*oldrsd)
+  oldrsd=rsd
+END rai2
+
+SUBROUTINE rai3(REAL val^,oldrsd^,rsd)
+  val=val+deltat*(90/120*rsd-50/120*oldrsd)
+END rai3
+
+rai=(rai1,rai2,rai3)
+
+NEWARRAY=ARRAY(1..nz-1) OF VVARS
+SUBROUTINE linestep[SUBROUTINE(REAL val^,oldrsd^,rsd) timescheme; INTEGER ix,iy; REAL dts; POINTER TO NEWARRAY new]
+  IF var(ix,iy)=NULL THEN EXIT linestep
+  izlo=var(ix,iy).LO+1; izhi=var(ix,iy).HI-1
+  POINTER INTO var(ix,iy) v00=izlo
+  POINTER INTO var(ix-1,iy) vm10=izlo
+  POINTER INTO var(ix+1,iy) v10=izlo
+  POINTER INTO var(ix,iy-1) v0m1=izlo
+  POINTER INTO var(ix,iy+1) v01=izlo
+  POINTER INTO var(ix-1,iy+1) vm11=izlo
+  POINTER INTO var(ix+1,iy-1) v1m1=izlo
+  POINTER INTO uimb(ix,iy) uiz=0
+  POINTER INTO vimb(ix,iy) viz=0
+  POINTER INTO wimb(ix,iy) wiz=0
+  LOOP FOR iz=izlo TO izhi
+    new(iz)=v00(0,1+(0..2))
+    IF uiz^#NULL AND iz>=uimb(ix,iy,uiz.LO).zind AND iz<=uimb(ix,iy,uiz.HI).zind THEN
+      rsdu=lapl(u)*nu-({[v10(0).u+v00(0).u]^2-[vm10(0).u+v00(0).u]^2}*d1x+
+           {[v01(0).u+v00(0).u]*[v10(0).v+v00(0).v]-[v0m1(0).u+v00(0).u]*[v1m1(0).v+v0m1(0).v]}*d1y+
+	   {[v00(1).u+v00(0).u]*[v10(0).w+v00(0).w]-[v00(-1).u+v00(0).u]*[v10(-1).w+v00(-1).w]}*d1z)/4
+      timescheme(new(iz).u,old(ix,iy,iz).u,rsdu)
+      new(iz).u=~-[v10(0).p-v00(0).p]*d1x*dts
+      WITH uimb(ix,iy,uiz) IF zind=iz THEN
+        new(iz).u=~/[1+dts*nu*c]
+	INC uiz
+      END IF
+    END IF
+    IF viz^#NULL AND iz>=vimb(ix,iy,viz.LO).zind AND iz<=vimb(ix,iy,viz.HI).zind THEN
+      rsdv=lapl(v)*nu-({[v01(0).v+v00(0).v]^2-[v0m1(0).v+v00(0).v]^2}*d1y+
+           {[v10(0).v+v00(0).v]*[v01(0).u+v00(0).u]-[vm10(0).v+v00(0).v]*[vm11(0).u+vm10(0).u]}*d1x+
+	   {[v00(1).v+v00(0).v]*[v01(0).w+v00(0).w]-[v00(-1).v+v00(0).v]*[v01(-1).w+v00(-1).w]}*d1z)/4
+      timescheme(new(iz).v,old(ix,iy,iz).v,rsdv)
+      new(iz).v=~-[v01(0).p-v00(0).p]*d1y*dts
+      WITH vimb(ix,iy,viz) IF zind=iz THEN
+        new(iz).v=~/[1+dts*nu*c]
+	INC viz
+      END IF
+    END IF
+    IF wiz^#NULL AND iz>=wimb(ix,iy,wiz.LO).zind AND iz<=wimb(ix,iy,wiz.HI).zind THEN
+      rsdw=lapl(w)*nu-({[v00(1).w+v00(0).w]^2-[v00(-1).w+v00(0).w]^2}*d1z+
+	   {[v10(0).w+v00(0).w]*[v00(1).u+v00(0).u]-[vm10(0).w+v00(0).w]*[vm10(1).u+vm10(0).u]}*d1x+
+	   {[v01(0).w+v00(0).w]*[v00(1).v+v00(0).v]-[v0m1(0).w+v00(0).w]*[v0m1(1).v+v0m1(0).v]}*d1y)/4
+      timescheme(new(iz).w,old(ix,iy,iz).w,rsdw)
+      new(iz).w=~-[v00(1).p-v00(0).p]*d1z*dts
+      WITH wimb(ix,iy,wiz) IF zind=iz THEN
+	new(iz).w=~/[1+dts*nu*c]
+	INC wiz
+      END IF
+    END IF
+    INC v00; INC vm10; INC v10; INC v0m1; INC v01; INC vm11; INC v1m1
+  REPEAT
+END linestep
+
+
+SUBROUTINE pressurelinestep(INTEGER ix, iy; REAL dts; INTEGER parity)
+  POINTER INTO uimb(ix,iy) uiz=0
+  POINTER INTO uimb(ix-1,iy) umiz=0
+  POINTER INTO vimb(ix,iy) viz=0
+  POINTER INTO vimb(ix,iy-1) vmiz=0
+  POINTER INTO wimb(ix,iy) wiz=0, wmiz=0
+
+  LOOP FOR iz=(nAddedPoints DIV 2)+(parity+it MOD 2) TO var.HI3-1 BY 2
+    POINTER INTO var(ix,iy) v00=iz
+    POINTER INTO var(ix-1,iy) vm10=iz
+    POINTER INTO var(ix,iy-1) v0m1=iz
+
+    REAL phi=0 
+    IF NOT pcond(ix,iy,iz) THEN
+      phi = ([v00(0).u-vm10(0).u]*d1x+[v00(0).v-v0m1(0).v]*d1y+[v00(0).w-v00(-1).w]*d1z)
+      phi = ~*n20
+      REAL u0c=0,um1c=0,v0c=0,vm1c=0,w0c=0,wm1c=0
+      
+      IF uiz^#NULL AND iz>=uimb(ix,iy,uiz.LO).zind AND iz<=uimb(ix,iy,uiz.HI).zind THEN
+        u0c=d1x
+        LOOP WHILE iz>uimb(ix,iy,uiz).zind  AND uiz<uiz.HI
+          INC uiz
+        REPEAT
+        WITH uimb(ix,iy,uiz) IF zind=iz THEN
+          u0c=~/[1+dts*nu*c]
+        END IF
+      END IF
+
+      IF umiz^#NULL AND iz>=uimb(ix-1,iy,umiz.LO).zind AND iz<=uimb(ix-1,iy,umiz.HI).zind THEN
+        um1c=d1x
+        LOOP WHILE iz>uimb(ix-1,iy,umiz).zind  AND umiz<umiz.HI
+          INC umiz
+        REPEAT
+        WITH uimb(ix-1,iy,umiz) IF zind=iz THEN
+          um1c=~/[1+dts*nu*c]
+        END IF
+      END IF
+
+      IF viz^#NULL AND iz>=vimb(ix,iy,viz.LO).zind AND iz<=vimb(ix,iy,viz.HI).zind THEN
+        v0c=d1y
+        LOOP WHILE iz>vimb(ix,iy,viz).zind AND viz<viz.HI
+          INC viz
+        REPEAT
+        WITH vimb(ix,iy,viz) IF zind=iz THEN
+          v0c=~/[1+dts*nu*c]
+        END IF
+      END IF
+    
+      IF vmiz^#NULL AND iz>=vimb(ix,iy-1,vmiz.LO).zind AND iz<=vimb(ix,iy-1,vmiz.HI).zind THEN
+        vm1c=d1y
+        LOOP WHILE iz>vimb(ix,iy-1,vmiz).zind AND vmiz<vmiz.HI
+          INC vmiz 
+        REPEAT
+        WITH vimb(ix,iy-1,vmiz) IF zind=iz THEN
+          vm1c=~/[1+dts*nu*c]
+        END IF
+      END IF
+          
+      IF wiz^#NULL AND iz>=wimb(ix,iy,wiz.LO).zind AND iz<=wimb(ix,iy,wiz.HI).zind THEN
+        w0c=d1z
+        LOOP WHILE iz>wimb(ix,iy,wiz).zind AND wiz<wiz.HI
+          INC wiz 
+        REPEAT
+        WITH wimb(ix,iy,wiz) IF zind=iz THEN
+          w0c=~/[1+dts*nu*c]
+        END IF
+      END IF
+    
+      IF wmiz^#NULL AND (iz-1)>=wimb(ix,iy,wmiz.LO).zind AND (iz-1)<=wimb(ix,iy,wmiz.HI).zind THEN
+        wm1c=d1z
+        LOOP WHILE (iz-1)>wimb(ix,iy,wmiz).zind AND wmiz<wmiz.HI
+          INC wmiz 
+        REPEAT
+        WITH wimb(ix,iy,wmiz) IF zind=(iz-1) THEN
+          wm1c=~/[1+dts*nu*c]
+        END IF
+      END IF
+      
+    
+    p0c=d1x*(u0c+um1c)+d1y*(v0c+vm1c)+d1z*(w0c+wm1c)
+
+    IF ABS(p0c)>1E-10 THEN
+      corr=phi*MAX(d20/p0c,1)
+      v00(0).p=~+corr/dts
+      v00(0).u=~+u0c*corr
+      v00(0).v=~+v0c*corr
+      v00(0).w=~+w0c*corr
+      v00(-1).w=~-wm1c*corr
+      vm10(0).u=~-um1c*corr
+      v0m1(0).v=~-vm1c*corr
+   END IF
+  END IF
+ REPEAT
+END pressurelinestep
+
+NEWARRAY newl(var.LO1+1..var.LO1+2,var.LO2+1..var.HI2-1)
+NEWARRAY newr(var.HI1-2..var.HI1-1,var.LO2+1..var.HI2-1)
+NEWARRAY newb(var.LO1+3..var.HI1-3,var.LO2+1..var.LO2+2)
+NEWARRAY newt(var.LO1+3..var.HI1-3,var.HI2-2..var.HI2-1)
+NEWARRAY new(0..1,var.LO2+3..var.HI2-3)
+SUBROUTINE timestep[SUBROUTINE(REAL val^,oldrsd^,rsd) timescheme]
+  REAL dts=0, testval=1
+  timescheme(dts,testval,testval)
+  LOOP FOR ix=var.LO1+2 TO var.HI1-2
+    LOOP FOR iy=var.LO2+2 TO var.HI2-2
+      linestep[timescheme,ix,iy,dts,
+	IF ix=var.LO1+2 THEN newl(ix,iy)
+	ELSE IF ix=var.HI1-2 THEN newr(ix,iy)
+	ELSE IF iy=var.LO2+2 THEN newb(ix,iy)
+	ELSE IF iy=var.HI2-2 THEN newt(ix,iy)
+	ELSE new(ix MOD 2,iy)]
+    REPEAT
+    IF ix>var.LO1+3 THEN LOOP FOR iy=new.LO2 TO new.HI2
+      IF var(ix-1,iy)#NULL THEN LOOP FOR iz=var(ix-1,iy).LO+1 TO var(ix-1,iy).HI-1: var(ix-1,iy,iz,1+(0..2))=new((ix-1) MOD 2,iy,iz)
+    REPEAT
+  REPEAT
+  LOOP FOR iy=var.LO2+1 TO var.HI2-1
+    linestep[timescheme,var.LO1+1,iy,dts,newl(var.LO1+1,iy)]
+    linestep[timescheme,var.HI1-1,iy,dts,newr(var.HI1-1,iy)]
+  REPEAT
+  LOOP FOR ix=var.LO1+2 TO var.HI1-2
+    linestep[timescheme,ix,var.LO2+1,dts,
+      IF ix=var.LO1+2 THEN newl(ix,var.LO2+1)
+      ELSE IF ix=var.HI1-2 THEN newr(ix,var.LO2+1)
+      ELSE newb(ix,var.LO2+1)]
+    linestep[timescheme,ix,var.HI2-1,dts,
+      IF ix=var.LO1+2 THEN newl(ix,var.HI2-1)
+      ELSE IF ix=var.HI1-2 THEN newr(ix,var.HI2-1)
+      ELSE newt(ix,var.HI2-1)]
+  REPEAT
+  LOOP FOR ix=var.LO1+1 TO var.LO1+2 AND iy=var.LO2+1 TO var.HI2-1
+    IF var(ix,iy)#NULL THEN LOOP FOR iz=var(ix,iy).LO+1 TO var(ix,iy).HI-1: var(ix,iy,iz,1+(0..2))=newl(ix,iy,iz)
+  REPEAT
+  LOOP FOR ix=var.HI1-2 TO var.HI1-1 AND iy=var.LO2+1 TO var.HI2-1
+    IF var(ix,iy)#NULL THEN LOOP FOR iz=var(ix,iy).LO+1 TO var(ix,iy).HI-1: var(ix,iy,iz,1+(0..2))=newr(ix,iy,iz)
+  REPEAT
+  LOOP FOR ix=var.LO1+3 TO var.HI1-3 AND iy=var.LO2+1 TO var.LO2+2
+    IF var(ix,iy)#NULL THEN LOOP FOR iz=var(ix,iy).LO+1 TO var(ix,iy).HI-1: var(ix,iy,iz,1+(0..2))=newb(ix,iy,iz)
+  REPEAT
+  LOOP FOR ix=var.LO1+3 TO var.HI1-3 AND iy=var.HI2-2 TO var.HI2-1
+    IF var(ix,iy)#NULL THEN LOOP FOR iz=var(ix,iy).LO+1 TO var(ix,iy).HI-1: var(ix,iy,iz,1+(0..2))=newt(ix,iy,iz)
+  REPEAT
+
+  LOOP FOR nCorrLoops TIMES 
+    LOOP FOR parity=0 TO 1
+      LOOP FOR ix=var.LO1+1 TO var.HI1 AND iy=var.LO2+1 TO var.HI2
+        pressurelinestep(ix,iy,dts,parity)
+      REPEAT
+    REPEAT
+  REPEAT
+
+END timestep
+

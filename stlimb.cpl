@@ -1,0 +1,287 @@
+!USE rtchecks
+
+orientation=-1
+INTEGER npoints(0..2)
+nx==npoints(0); ny==npoints(1); nz==npoints(2)
+INTEGER ntimes, it=0, nAddedPoints, zBC, itSave, itCheckCFL, nCorrLoopsIt, nCorrLoopsIt1, nCorrLoops
+REAL xmin(0..2),delta(0..2), ballx, bally, ballz, radius, nu, deltat, pBC, time=0, energy, CFL, CFLmax=0, CFLtarget, tMax, zPlane, xxmin, yymin, zzmin, deltatMax
+deltax==delta(0); deltay==delta(1); deltaz==delta(2)
+FILE savedfield
+
+settings=OPEN("settings.txt")
+READ BY NAME FROM settings nx, ny, nz, ballx, bally, ballz, radius, nAddedPoints, deltat, deltatMax, CFL, itSave, tMax, pBC, zPlane, nu, nCorrLoopsIt, nCorrLoopsIt1
+CFLtarget=CFL
+
+IF COMMANDLINE.HI=2 THEN
+  FILE savedfield=OPEN(COMMANDLINE(2))
+  READ BY NAME FROM savedfield nx,ny,nz,ballx,bally,ballz,radius,nu,time,it,nAddedPoints
+  CLOSE savedfield
+  nx=nx-nAddedPoints
+  ny=ny-nAddedPoints
+  nz=nz-nAddedPoints
+END IF
+
+!!!!!!!!!!! LIMITI DOMINIO !!!!!!!!!!!
+stlfile=OPEN(COMMANDLINE(1))
+TRIANGLE=STRUCTURE[ARRAY(0..2) OF SINGLE normal,v(0..2); u_int16_t attr]
+POSITION stlfile,80
+ntri=BINARY INTEGER FROM stlfile
+DO xmin(i)=1E20; delta(i)=-1E20 FOR ALL i
+!deltax==delta(0); deltay==delta(1); deltaz==delta(2)
+LOOP FOR ntri TIMES
+  TRIANGLE tri
+  READ BINARY FROM stlfile tri.normal, tri.v, tri.attr
+  WITH tri
+  DO
+    IF xmin(j)>v(i,j) THEN xmin(j)=v(i,j)
+    IF delta(j)<v(i,j) THEN delta(j)=v(i,j)
+  FOR ALL i,j
+REPEAT
+xmin(0)=MIN(xmin(0), ballx-radius)
+xmin(2)=MIN(xmin(2), ballz-radius)
+delta(0)=MAX(delta(0),ballx+radius)
+delta(1)=MAX(delta(1),bally+radius)
+delta(2)=MAX(delta(2),ballz+radius)
+DO delta(i)=(delta(i)-xmin(i))/[npoints(i)-0.51]; xmin(i)=~-0.505*delta(i) FOR ALL i
+
+! Dominio allargato per evitare errori discretizzazione stl ai bordi
+DO npoints(i)=~+nAddedPoints FOR ALL i
+DO xmin(i)=~-nAddedPoints/2*delta(i) FOR ALL i
+
+zBC=ROUND((zPlane-xmin(2))/delta(2))
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+
+!!!!!!!!!!! CALCOLO STRUTTURA A PETTINE E COEFF. IMM. B. !!!!!!!!!!!
+BOOLEAN FUNCTION segment(REAL x0,y1^(1..2),z1^(1..2)
+    SINGLE VARIABLE v00,v01,v02,v10,v11,v12,v20,v21,v22)
+    INTEGER count=0
+  IF (x0>v00)#(x0>v10) THEN
+    INC count
+    y1(count)=v01+(v11-v01)*(x0-v00)/(v10-v00)
+    z1(count)=v02+(v12-v02)*(x0-v00)/(v10-v00)
+  END IF
+  IF (x0>v10)#(x0>v20) THEN
+    INC count
+    y1(count)=v11+(v21-v11)*(x0-v10)/(v20-v10)
+    z1(count)=v12+(v22-v12)*(x0-v10)/(v20-v10)
+  END IF
+  IF (x0>v20)#(x0>v00) THEN
+    INC count
+    y1(count)=v21+(v01-v21)*(x0-v20)/(v00-v20)
+    z1(count)=v22+(v02-v22)*(x0-v20)/(v00-v20)
+  END IF
+  RESULT=(count=2)
+END segment
+
+SUBROUTINE intersect(REAL pos^; INTEGER orient^; REAL VARIABLE x1,x2
+    SINGLE VARIABLE v00,v01,v02,v10,v11,v12,v20,v21,v22)
+  pos=0
+  x1=x1-v01; x2=x2-v02
+  v10=v10-v00; v11=v11-v01; v12=v12-v02
+  v20=v20-v00; v21=v21-v01; v22=v22-v02
+  den=v11*v22-v12*v21
+  IF den=0 THEN orient=0; EXIT intersect
+  a=(x1*v22-x2*v21)/den
+  b=(x2*v11-x1*v12)/den
+  IF a<0 OR b<0 OR a+b>1 THEN orient=0; EXIT intersect
+  pos=v00+a*v10+b*v20
+  orient=orientation*SIGN(den)
+END intersect
+
+BOOLEAN FUNCTION InBall(REAL x,y,z)=(x-ballx)^2+(y-bally)^2+(z-ballz)^2<radius^2
+
+IMBSTR=STRUCTURE(INTEGER zind; REAL c)
+IMBARR=POINTER TO ARRAY(*) OF IMBSTR
+IMBARRAY=ARRAY(0..nx,0..ny) OF IMBARR
+
+BOOLEAN pcond(0..nx,0..ny,0..nz)
+DO pcond(ix,iy,iz)=NO FOR ALL ix,iy,iz
+
+SUBROUTINE calcimbc[IMBARRAY imb^; INTEGER di(1..3)]
+  dix==di(1); diy==di(2); diz==di(3)
+  LOOP FOR ix=imb.LO1 TO imb.HI1
+    x=xmin(0)+(ix+0.5*dix)*deltax
+    REAL star(0..ny,0..nz,0..2,0..1)
+    DO star(iy,iz,i,j)=delta(i) FOR ALL iy,iz,i,j
+    POSITION stlfile,84
+    LOOP FOR ntri TIMES
+      TRIANGLE tri
+      READ BINARY FROM stlfile tri.normal, tri.v, tri.attr
+      WITH tri
+      REAL xlo(0..2),xhi(0..2)
+      DO xlo(i)=MIN(v(*,i)) FOR ALL i
+      DO xhi(i)=MAX(v(*,i)) FOR ALL i
+      IF xhi(0)>x-deltax AND xlo(0)<x+deltax THEN
+	iylo=MAX(imb.LO2,FLOOR[(xlo(1)-xmin(1))/deltay-0.5*diy])
+	iyhi=MIN(imb.HI2,CEILING[(xhi(1)-xmin(1))/deltay-0.5*diy])
+	LOOP FOR iy=iylo TO iyhi
+          y=xmin(1)+(iy+0.5*diy)*deltay
+	  REAL xpos,ypos,zpos
+	  INTEGER xorient,yorient,zorient
+	  intersect[zpos,zorient,x,y,
+	      v(0,2),v(0,0),v(0,1),v(1,2),v(1,0),v(1,1),v(2,2),v(2,0),v(2,1)]
+	  izlo=MAX(1,FLOOR[(xlo(2)-xmin(2))/deltaz-0.5*diz])
+	  izhi=MIN(nz-1,CEILING[(xhi(2)-xmin(2))/deltaz-0.5*diz])
+	  LOOP FOR iz=izlo TO izhi
+	    z=xmin(2)+(iz+0.5*diz)*deltaz
+	    dz=zpos-z
+	    styz=^star(iy,iz)
+	    IF zorient#0 AND dz<0 AND -dz<styz(2,0) THEN styz(2,0)=IF zorient<0 THEN -dz ELSE 0
+	    IF zorient#0 AND dz>0 AND dz<styz(2,1) THEN styz(2,1)=IF zorient>0 THEN dz ELSE 0
+	    intersect[xpos,xorient,y,z,
+		v(0,0),v(0,1),v(0,2),v(1,0),v(1,1),v(1,2),v(2,0),v(2,1),v(2,2)]
+	    dx=xpos-x
+	    IF xorient#0 AND dx<0 AND -dx<styz(0,0) THEN styz(0,0)=IF xorient<0 THEN -dx ELSE 0
+	    IF xorient#0 AND dx>0 AND dx<styz(0,1) THEN styz(0,1)=IF xorient>0 THEN dx ELSE 0
+	    intersect[ypos,yorient,z,x,
+		v(0,1),v(0,2),v(0,0),v(1,1),v(1,2),v(1,0),v(2,1),v(2,2),v(2,0)]
+	    dy=ypos-y
+	    IF yorient#0 AND dy<0 AND -dy<styz(1,0) THEN styz(1,0)=IF yorient<0 THEN -dy ELSE 0
+	    IF yorient#0 AND dy>0 AND dy<styz(1,1) THEN styz(1,1)=IF yorient>0 THEN dy ELSE 0
+          REPEAT
+	REPEAT
+      END IF
+    REPEAT
+    LOOP FOR iz=1 TO nz-1
+      INTEGER iy1=imb.LO2
+      LOOP FOR iy=imb.LO2 TO imb.HI2
+        IF star(iy,iz,1,0)=0 THEN iy1=iy
+        IF star(iy,iz,1,1)=0 THEN
+	  LOOP FOR iyy=iy1 TO iy: star(iyy,iz)=0
+	  iy1=imb.HI2
+	END IF
+      REPEAT
+    REPEAT
+!!! ball !!!
+    LOOP FOR iz=1 TO nz-1
+      z=xmin(2)+(iz+0.5*diz)*deltaz
+      INTEGER iy=imb.HI2-1
+      LOOP WHILE iy>imb.LO2 AND star(iy,iz,1,0)#0
+        y=xmin(1)+(iy+0.5*diy)*deltay
+        IF InBall(x,y,z) THEN
+          IF dix#0 AND NOT InBall(x-deltax,y,z) THEN pcond(ix,iy,iz)=YES;
+          IF dix#0 AND NOT InBall(x+deltax,y,z) THEN pcond(ix+1,iy,iz)=YES;
+          IF diy#0 AND NOT InBall(x,y-deltay,z) THEN pcond(ix,iy,iz)=YES;
+          IF diy#0 AND NOT InBall(x,y+deltay,z) THEN pcond(ix,iy+1,iz)=YES;
+          IF diz#0 AND NOT InBall(x,y,z-deltaz) THEN pcond(ix,iy,iz)=YES;
+          IF diz#0 AND NOT InBall(x,y,z+deltaz) THEN pcond(ix,iy,iz+1)=YES;
+	ELSE star(iy,iz)=0
+	DEC iy
+      REPEAT
+    REPEAT
+!!!!!!!!!!!!    
+    LOOP FOR iy=imb.LO2 TO imb.HI2
+      REAL imbcline(1..nz-1)
+      LOOP FOR iz=1 TO nz-1
+        styz=^star(iy,iz)
+	imbcline(iz)=SUM (IF styz(i,j)=0 THEN 1E30 ELSE [1/styz(i,j)-1/delta(i)]/delta(i)) FOR ALL i,j
+      REPEAT
+
+    IF imbcline(zBC)#6E30 AND (di(1)=1 OR di(2)=1) AND iy<ny DIV 5 THEN imbcline(zBC)=6E30
+
+      INTEGER izlo=1,izhi=nz-1,nzcount=0
+      LOOP WHILE izlo<nz AND imbcline(izlo)>=1E30: INC izlo
+      LOOP WHILE izhi>0 AND imbcline(izhi)>=1E30: DEC izhi
+      IF izhi>=izlo THEN
+	LOOP FOR iz=izlo TO izhi
+          IF imbcline(iz)>1E-8 OR iz=izlo OR iz=izhi THEN INC nzcount
+	REPEAT
+	imb(ix,iy)=NEW ARRAY(0..nzcount-1) OF IMBSTR
+	INTEGER iiz=0
+	LOOP FOR iz=izlo TO izhi
+	  IF imbcline(iz)>1E-8 OR iz=izlo OR iz=izhi THEN
+	    WITH imb(ix,iy,iiz): zind=iz; c=imbcline(iz)
+	    INC iiz
+	  END IF
+	REPEAT
+      ELSE imb(ix,iy)=NULL
+    REPEAT
+  REPEAT
+END calcimbc
+
+IMBARRAY uimb,vimb,wimb
+calcimbc(uimb, (1,0,0))
+calcimbc(vimb, (0,1,0))
+calcimbc(wimb, (0,0,1))
+
+USE BCBall
+
+CLOSE stlfile
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+!!!!!!!!!!! INIZIALIZZAZIONE STRUTTURA VAR !!!!!!!!!!!
+INTEGER varcount=0
+VARS=STRUCTURED ARRAY(p,u,v,w) OF REAL
+VVARS=STRUCTURED ARRAY(u,v,w) OF REAL
+LINEARR=POINTER TO ARRAY(*) OF VARS
+ARRAY(0..nx,0..ny,0..nz) OF VARS var=0
+ARRAY(1..nx-1,1..ny-1) OF POINTER TO ARRAY(*) OF VVARS old
+
+LOOP FOR ix=var.LO1 TO var.HI1 AND iy=var.LO2 TO var.HI2
+  INTEGER izlo=nz, izhi=0
+  SUBROUTINE lohi(IMBARR a^)
+    IF a=NULL THEN EXIT lohi
+    IF izlo>a(LO).zind THEN izlo=a(LO).zind
+    IF izhi<a(HI).zind THEN izhi=a(HI).zind
+  END lohi
+  SUBROUTINE lohi1(IMBARR a^)
+    IF a=NULL THEN EXIT lohi1
+    IF izlo>a(LO).zind THEN izlo=a(LO).zind
+    IF izhi<a(HI).zind+1 THEN izhi=a(HI).zind+1
+  END lohi1
+  SUBROUTINE lohim1(IMBARR a^)
+    IF a=NULL THEN EXIT lohim1
+    IF izlo>a(LO).zind-1 THEN izlo=a(LO).zind-1
+    IF izhi<a(HI).zind THEN izhi=a(HI).zind
+  END lohim1
+  lohi[uimb(ix,iy)]; lohi[vimb(ix,iy)]; lohi[wimb(ix,iy)]
+  IF izlo<=izhi AND ix>=old.LO1 AND ix<=old.HI1 AND iy>=old.LO2 AND iy<=old.HI2
+    THEN
+      old(ix,iy)=NEW ARRAY(izlo..izhi) OF VVARS
+      varcount=~+LENGTH(old(ix,iy))
+    END IF
+  DEC izlo; INC izhi
+  IF ix>0 THEN lohim1[uimb(ix-1,iy)]; lohi[vimb(ix-1,iy)]; lohi[wimb(ix-1,iy)]
+  IF ix<nx THEN lohi[uimb(ix+1,iy)]; lohi[vimb(ix+1,iy)]; lohi1[wimb(ix+1,iy)]
+  IF iy>0 THEN lohi[uimb(ix,iy-1)]; lohim1[vimb(ix,iy-1)]; lohi[wimb(ix,iy-1)]
+  IF iy<ny THEN lohi[uimb(ix,iy+1)]; lohi[vimb(ix,iy+1)]; lohi1[wimb(ix,iy+1)]
+  IF ix>0 AND iy<ny THEN lohi[uimb(ix-1,iy+1)]
+  IF ix<nx AND iy>0 THEN lohi[vimb(ix+1,iy-1)]
+REPEAT
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+!!!!!!!!!!! IMPORTAZIONE !!!!!!!!!!!
+USE iofiles
+IF COMMANDLINE.HI=2 THEN FILE savedfield=OPEN(COMMANDLINE(2)); import; CLOSE savedfield;
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+!USE imbcWrite
+
+!!!!!!!!!!! LOOP SOLUZIONE !!!!!!!!!!!
+!USE bc_p
+USE bc_totP
+
+USE statistics
+
+USE timestep
+USE cfl
+
+nCorrLoops=nCorrLoopsIt1
+LOOP timeloop
+  DO timestep(rai(i)); lowerInletImposition; ballBCImposition FOR ALL i
+!  DO timestep(rai(i)); lowerInletImposition; FOR ALL i
+  INC it
+  time=time+deltat
+  fr=(SUM var(ix,iy,zBC+2).w*deltax*deltay FOR ALL ix AND iy=0 TO ny DIV 5)
+  WRITE time, fr, deltat, var(176,233,379).u, var(176,240,379).u
+  FLUSH stdout
+  calcStats
+  CFLCond
+  IF it MOD itSave = 0 THEN savefield("nose"time".field"); writeVTKStats("nose"time".stats.vtk")
+  nCorrLoops=nCorrLoopsIt
+REPEAT timeloop UNTIL time>=tMax
+
+savefield("noseFinal.field")
+writeVTKStats("noseFinal.stats.vtk")
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!

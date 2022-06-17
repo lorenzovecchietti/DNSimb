@@ -1,0 +1,10 @@
+SUBROUTINE CFLCond
+  CFLmax=0
+
+  LOOP FOR ix=1 TO nx AND iy=1 TO ny AND iz=1 TO nz
+   WITH var(ix+*, iy+*, iz+*) CFL=ABS((u(-1, 0, 0)+u(0, 0, 0))/deltax)+ABS((v(0, -1, 0)+v(0, 0, 0))/deltay)+ABS((w(0, 0,-1)+w(0,0,0))/deltaz)
+    CFLmax=MAX(CFLmax, CFL/2)
+  REPEAT
+
+  deltat=MIN(CFLtarget/CFLmax, deltatMax)
+END CFLCond

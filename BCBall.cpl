@@ -1,0 +1,138 @@
+BALLSTR=STRUCTURE(INTEGER xx, yy, zz, bx, by, bz )
+BALLARR=POINTER TO ARRAY(*) OF BALLSTR
+BALLARR xBallm1, xBallp1, yBallm1, yBallp1, zBallm1, zBallp1
+BOOLEAN inside
+INTEGER nBallBCxm=-1, nBallBCxp=-1, nBallBCym=-1, nBallBCyp=-1, nBallBCzm=-1, nBallBCzp=-1, bxset,  byset, bzset
+
+ixSphMin=MAX(FLOOR((ballx-radius-xmin(0))/delta(0)),1)
+ixSphMax=MIN(CEILING((radius+ballx-xmin(0))/delta(0)),nx-1)
+iySphMin=FLOOR((bally-radius-xmin(1))/delta(1))
+iySphMax=MIN(CEILING((radius+bally-xmin(1))/delta(1)),ny-1)
+
+SUBROUTINE checkInside(IMBARRAY imb; INTEGER ix,iy,iz)
+    inside=YES
+    IF imb(ix,iy)=NULL OR imb(ix,iy,LO).zind>iz OR imb(ix,iy,HI).zind<iz THEN
+        inside=NO
+    ELSE
+        LOOP FOR i=imb(ix,iy).LO TO imb(ix,iy).HI
+            IF imb(ix,iy,i).zind=iz AND imb(ix,iy,i).c=0 THEN inside=NO
+        REPEAT
+    END IF
+END checkInside
+
+SUBROUTINE BallStruct(IMBARRAY imb; INTEGER ix,iy,iz; BOOLEAN createStruct)
+    x=xmin(0)+delta(0)*ix; y=xmin(1)+delta(1)*iy; z=xmin(2)+delta(2)*iz
+    IF x>ballx THEN checkInside(uimb,ix+1,iy,iz); IF inside=NO THEN
+       INC nBallBCxp
+       IF createStruct=YES THEN WITH xBallp1(nBallBCxp-1) xx=ix; yy=iy; zz=iz;
+    END IF
+    IF y>bally THEN checkInside(vimb,ix,iy+1,iz); IF inside=NO THEN
+        INC nBallBCyp
+        IF createStruct=YES THEN WITH yBallp1(nBallBCyp-1) xx=ix; yy=iy; zz=iz;
+    END IF
+    IF z>ballz THEN checkInside(wimb,ix,iy,iz+1); IF inside=NO THEN
+         INC nBallBCzp
+         IF createStruct=YES THEN WITH zBallp1(nBallBCzp-1) xx=ix; yy=iy; zz=iz;
+    END IF
+    IF x<ballx THEN checkInside(uimb,ix-1,iy,iz); IF inside=NO THEN
+        INC nBallBCxm
+        IF createStruct=YES THEN WITH xBallm1(nBallBCxm-1) xx=ix; yy=iy; zz=iz;
+    END IF
+    IF y<bally THEN checkInside(vimb,ix,iy-1,iz); IF inside=NO THEN
+        INC nBallBCym
+        IF createStruct=YES THEN WITH yBallm1(nBallBCym-1) xx=ix; yy=iy; zz=iz;
+    END IF
+    IF z<ballz THEN checkInside(wimb,ix,iy,iz-1); IF inside=NO THEN
+        INC nBallBCzm
+        IF createStruct=YES THEN WITH zBallm1(nBallBCzm-1) xx=ix; yy=iy; zz=iz;
+    END IF
+END BallStruct
+
+SUBROUTINE assignVelComponents(IMBARRAY imb; INTEGER ix,iy,iz, bxx, byy, bzz)
+    x=xmin(0)+delta(0)*ix; y=xmin(1)+delta(1)*iy; z=xmin(2)+delta(2)*iz
+    IF x>ballx THEN checkInside(uimb,ix+1,iy,iz); IF inside=NO THEN WITH xBallp1(nBallBCxp-1) bx=bxx; by=byy; bz=bzz;
+    IF y>bally THEN checkInside(vimb,ix,iy+1,iz); IF inside=NO THEN WITH yBallp1(nBallBCyp-1) bx=bxx; by=byy; bz=bzz;
+    IF z>ballz THEN checkInside(wimb,ix,iy,iz+1); IF inside=NO THEN WITH zBallp1(nBallBCzp-1) bx=bxx; by=byy; bz=bzz;
+    IF x<ballx THEN checkInside(uimb,ix-1,iy,iz); IF inside=NO THEN WITH xBallm1(nBallBCxm-1) bx=bxx; by=byy; bz=bzz;
+    IF y<bally THEN checkInside(vimb,ix,iy-1,iz); IF inside=NO THEN WITH yBallm1(nBallBCym-1) bx=bxx; by=byy; bz=bzz;
+    IF z<ballz THEN checkInside(wimb,ix,iy,iz-1); IF inside=NO THEN WITH zBallm1(nBallBCzm-1) bx=bxx; by=byy; bz=bzz;
+END assignVelComponents
+
+!Routine per contare
+LOOP FOR ix=ixSphMin-1 TO ixSphMax+1 AND iy=iySphMin-1 TO iySphMax+1
+    IF uimb(ix,iy)#NULL AND pcond(ix,iy,uimb(ix,iy,LO).zind)=YES THEN BallStruct(uimb, ix,iy,uimb(ix,iy,LO).zind, NO)
+    IF vimb(ix,iy)#NULL AND (uimb(ix,iy)=NULL OR vimb(ix,iy,LO)#uimb(ix,iy,LO)) AND pcond(ix,iy,vimb(ix,iy,LO).zind)=YES THEN BallStruct(vimb, ix,iy,vimb(ix,iy,LO).zind, NO)
+    IF wimb(ix,iy)#NULL AND (uimb(ix,iy)=NULL OR wimb(ix,iy,LO)#uimb(ix,iy,LO)) AND (vimb(ix,iy)=NULL OR wimb(ix,iy,LO)#vimb(ix,iy,LO)) AND pcond(ix,iy,wimb(ix,iy,LO).zind)=YES THEN BallStruct(wimb, ix,iy,wimb(ix,iy,LO).zind, NO)
+
+    IF uimb(ix,iy)#NULL AND pcond(ix,iy,uimb(ix,iy,HI).zind)=YES THEN BallStruct(uimb, ix,iy,uimb(ix,iy,HI).zind, NO)
+    IF vimb(ix,iy)#NULL AND (uimb(ix,iy)=NULL OR vimb(ix,iy,HI)#uimb(ix,iy,HI)) AND pcond(ix,iy,vimb(ix,iy,HI).zind)=YES THEN BallStruct(vimb, ix,iy,vimb(ix,iy,HI).zind, NO)
+    IF wimb(ix,iy)#NULL AND (uimb(ix,iy)=NULL OR wimb(ix,iy,HI)#uimb(ix,iy,HI)) AND (vimb(ix,iy)=NULL OR wimb(ix,iy,HI)#vimb(ix,iy,HI)) AND pcond(ix,iy,wimb(ix,iy,HI).zind)=YES THEN BallStruct(wimb, ix,iy,wimb(ix,iy,HI).zind, NO)
+REPEAT
+
+xBallm1=NEW ARRAY(0..nBallBCxm) OF BALLSTR
+xBallp1=NEW ARRAY(0..nBallBCxp) OF BALLSTR
+yBallm1=NEW ARRAY(0..nBallBCym) OF BALLSTR
+yBallp1=NEW ARRAY(0..nBallBCyp) OF BALLSTR
+zBallm1=NEW ARRAY(0..nBallBCzm) OF BALLSTR
+zBallp1=NEW ARRAY(0..nBallBCzp) OF BALLSTR
+
+nBallBCxm=0; nBallBCxp=0; nBallBCym=0; nBallBCyp=0; nBallBCzm=0; nBallBCzp=0
+LOOP FOR ix=ixSphMin-1 TO ixSphMax+1 AND iy=iySphMin-1 TO iySphMax+1
+    bxset=0
+    byset=0
+    bzset=0
+
+    IF uimb(ix,iy)#NULL AND pcond(ix,iy,uimb(ix,iy,LO).zind)=YES THEN
+        BallStruct(uimb, ix,iy,uimb(ix,iy,LO).zind, YES)
+        bxset=1
+        IF vimb(ix,iy)#NULL AND vimb(ix,iy,LO)=uimb(ix,iy,LO) AND pcond(ix,iy,vimb(ix,iy,LO).zind)=YES THEN byset=1
+        IF wimb(ix,iy)#NULL AND wimb(ix,iy,LO)=uimb(ix,iy,LO) AND pcond(ix,iy,wimb(ix,iy,LO).zind)=YES THEN bzset=1
+        assignVelComponents(uimb, ix,iy,uimb(ix,iy,LO).zind, bxset, byset, bzset)
+    END IF
+
+    IF vimb(ix,iy)#NULL AND (uimb(ix,iy)=NULL OR vimb(ix,iy,LO)#uimb(ix,iy,LO)) AND pcond(ix,iy,vimb(ix,iy,LO).zind)=YES THEN
+        BallStruct(vimb, ix,iy,vimb(ix,iy,LO).zind, YES)
+        bxset=0
+        byset=1
+        IF wimb(ix,iy)#NULL AND vimb(ix,iy)#NULL AND wimb(ix,iy,LO)=vimb(ix,iy,LO) AND pcond(ix,iy,wimb(ix,iy,LO).zind)=YES THEN bzset=1
+        assignVelComponents(vimb, ix,iy,vimb(ix,iy,LO).zind, bxset, byset, bzset)
+    END IF
+
+    IF wimb(ix,iy)#NULL AND (uimb(ix,iy)=NULL OR wimb(ix,iy,LO)#uimb(ix,iy,LO)) AND (vimb(ix,iy)=NULL OR wimb(ix,iy,LO)#vimb(ix,iy,LO)) AND pcond(ix,iy,wimb(ix,iy,LO).zind)=YES THEN
+        BallStruct(wimb, ix,iy,wimb(ix,iy,LO).zind, YES)
+        bxset=0
+        byset=0
+        bzset=1
+        assignVelComponents(wimb, ix,iy,wimb(ix,iy,LO).zind, bxset, byset, bzset)
+    END IF
+
+    bxset=0
+    byset=0
+    bzset=0
+
+    IF uimb(ix,iy)#NULL AND pcond(ix,iy,uimb(ix,iy,HI).zind)=YES THEN
+        BallStruct(uimb, ix,iy,uimb(ix,iy,HI).zind, YES)
+        bxset=1
+        IF vimb(ix,iy)#NULL AND vimb(ix,iy,HI)=uimb(ix,iy,HI) AND pcond(ix,iy,vimb(ix,iy,HI).zind)=YES THEN byset=1
+        IF wimb(ix,iy)#NULL AND wimb(ix,iy,HI)=uimb(ix,iy,HI) AND pcond(ix,iy,wimb(ix,iy,HI).zind)=YES THEN bzset=1
+        assignVelComponents(uimb, ix,iy,uimb(ix,iy,HI).zind, bxset, byset, bzset)
+    END IF
+
+    IF vimb(ix,iy)#NULL AND (uimb(ix,iy)=NULL OR vimb(ix,iy,HI)#uimb(ix,iy,HI)) AND pcond(ix,iy,vimb(ix,iy,HI).zind)=YES THEN
+        BallStruct(vimb, ix,iy,vimb(ix,iy,HI).zind, YES)
+        bxset=0
+        byset=1
+        IF wimb(ix,iy)#NULL AND vimb(ix,iy)#NULL AND wimb(ix,iy,HI)=vimb(ix,iy,HI) AND pcond(ix,iy,wimb(ix,iy,HI).zind)=YES THEN bzset=1
+        assignVelComponents(vimb, ix,iy,vimb(ix,iy,HI).zind, bxset, byset, bzset)
+    END IF
+
+    IF wimb(ix,iy)#NULL AND (uimb(ix,iy)=NULL OR wimb(ix,iy,HI)#uimb(ix,iy,HI)) AND (vimb(ix,iy)=NULL OR wimb(ix,iy,HI)#vimb(ix,iy,HI)) AND pcond(ix,iy,wimb(ix,iy,HI).zind)=YES THEN
+        BallStruct(wimb, ix,iy,wimb(ix,iy,HI).zind, YES)
+        bxset=0
+        byset=0
+        bzset=1
+        assignVelComponents(wimb, ix,iy,wimb(ix,iy,HI).zind, bxset, byset, bzset)
+    END IF
+
+
+REPEAT
